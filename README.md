@@ -26,9 +26,23 @@ default.json               tallennettu tulos oletusarvoille
 
 ## Malli
 
-2D, ilma 65 °C (ρ = 1,04 kg/m³, μ = 2,03e-5 Pa·s). Tulo vasemman haaran yläpäässä (nopeus vin alaspäin),
-ulostulo oikean haaran yläpäässä (p = 0), seinillä no-slip. Haaran pituus 10 mm.
+2D, ilma 65 °C (ρ = 1,04 kg/m³, μ = 2,03e-5 Pa·s), täysi laminaarinen Navier–Stokes (Newton-iteraatio).
+Tulo vasemman haaran yläpäässä (nopeus vin alaspäin), ulostulo oikean haaran yläpäässä (p = 0), seinillä no-slip.
+Haaran pituus 10 mm.
 
-SDK-huomio (allsolve 0.5.2): `LaminarFlow` ei ratkaise virtausta alueen sisällä ilman
-`LaminarFlowLinear`-interaktiota fluidialueella, ja se vaatii materiaalille äänennopeuden. Lisäksi boolen
-operaation tulos säilyttää ensimmäisen kappaleen CAD-nimen (`bend_outer`).
+**Vesitasku (kuollut alue)** = kohta, jossa virtaus kääntyy takaisin kanavan suuntaa vastaan, tai jossa ilma liikkuu
+alle 1 m/s yli 15 %:n päässä kanavan leveydestä seinästä (seinän vieressä ilma on aina hidasta, eikä sitä lasketa).
+Hyväksytty alle 1 %, rajalla 1–5 %, hylätty yli 5 % kanavan pinta-alasta. Kuvaaja näyttää taskun punaisena ja nuoli
+osoittaa suurimman taskun sijainnin.
+
+Jos Navier–Stokes ei suppene (tiukka mutka ja suuri nopeus), tulosta ei näytetä.
+
+Esimerkit (`examples/`, oikeita Allsolve-ajoja):
+- onnistuu: w 0,8 mm, Rin 1,0 mm, vin 3,0 m/s → vesitaskuja 0 %
+- epäonnistuu: w 1,6 mm, Rin 0,2 mm, vin 3,0 m/s → 10,3 %, paluuvirtaus mutkan jälkeen sisäseinällä
+
+SDK-huomiot (allsolve 0.5.2):
+- `LaminarFlow` ei ratkaise virtausta ilman `LaminarFlowLinear`-interaktiota, ja se vaatii materiaalille äänennopeuden.
+- `LaminarFlowLinear` tuottaa Stokes-yhtälön (ei inertiaa). Täysi Navier–Stokes otetaan käyttöön mukautetulla
+  skriptillä (`AFTER_FORMULATIONS_CREATED`, `qs.predefinednavierstokes`).
+- Boolen operaation tulos säilyttää ensimmäisen kappaleen CAD-nimen (`bend_outer`).

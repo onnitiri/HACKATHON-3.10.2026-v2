@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fi">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -63,6 +63,16 @@ main { padding: 32px 40px 24px; min-width: 0; }
 .verdict.ok { color: var(--ok); } .verdict.warn { color: var(--warn); } .verdict.bad { color: var(--bad); }
 .note { color: var(--ink2); font-size: 14px; margin: 0 0 8px; }
 #plot { width: 100%; height: 62vh; min-height: 420px; }
+.badge { display: inline-block; font-size: 22px; font-weight: 800; letter-spacing: .5px; padding: 8px 18px; border-radius: 10px; margin: 6px 0 4px; }
+.badge.ok { background: var(--ok-bg); color: var(--ok); border: 2px solid var(--ok); }
+.badge.warn { background: var(--warn-bg); color: var(--warn); border: 2px solid var(--warn); }
+.badge.bad { background: var(--bad-bg); color: var(--bad); border: 2px solid var(--bad); }
+.badge:empty { display: none; }
+.examples { margin-top: 26px; }
+.examples p { font-size: 14px; color: var(--ink2); margin: 0 0 8px; }
+.ex { display: block; width: 100%; text-align: left; background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; margin-bottom: 8px; font: inherit; font-size: 14px; cursor: pointer; }
+.ex:hover { border-color: var(--ink2); }
+.ex b.okc { color: var(--ok); } .ex b.badc { color: var(--bad); }
 .caption { color: var(--ink2); font-size: 14px; }
 .caption a { color: var(--info); }
 @media (max-width: 900px) { .app, .cards { grid-template-columns: minmax(0, 1fr); } main { padding: 20px 16px; } }
@@ -71,10 +81,15 @@ main { padding: 32px 40px 24px; min-width: 0; }
 <body>
 <div class="app">
   <aside>
-    <h2>U-mutkan parametrit</h2>
+    <h2>U-bend parameters</h2>
     <div id="fields"></div>
     <div class="info" id="rib"></div>
-    <button class="run" id="run">Aja Allsolve-simulaatio</button>
+    <button class="run" id="run">Run Allsolve simulation</button>
+    <div class="examples">
+      <p>Examples (saved Allsolve runs):</p>
+      <button class="ex" data-ex="pass"><b class="okc">✓ Passes</b> · gentle bend: w 0.8 mm, Rin 1.0 mm, vin 3.0 m/s</button>
+      <button class="ex" data-ex="fail"><b class="badc">✗ Fails</b> · tight bend: w 1.6 mm, Rin 0.2 mm, vin 3.0 m/s</button>
+    </div>
   </aside>
   <main>
     <div class="msg" id="msg"></div>
@@ -86,7 +101,7 @@ main { padding: 32px 40px 24px; min-width: 0; }
         <path class="u-flow" d="M14 6 V54 A18 18 0 0 0 50 54 V6"/>
       </svg>
       <div>
-        <div class="run-title">Allsolve laskee…</div>
+        <div class="run-title">Allsolve is computing…</div>
         <div class="steps" id="steps"></div>
         <div class="timer" id="timer"></div>
       </div>
@@ -95,6 +110,7 @@ main { padding: 32px 40px 24px; min-width: 0; }
     <div class="cards" id="cards"></div>
     <div class="verdict" id="verdict"></div>
     <p class="note" id="note"></p>
+    <div class="badge" id="badge"></div>
     <div id="plot"></div>
     <p class="caption" id="caption"></p>
   </main>
@@ -103,81 +119,97 @@ main { padding: 32px 40px 24px; min-width: 0; }
 const RHO = 1.04, MU = 2.03e-5;
 const LIMITS = {
   dp: { warn: 5000, bad: 10000 },   // Pa per U-bend
-  slow: { warn: 15, bad: 30 },      // % of channel area with |u| < 1 m/s
+  dead: { warn: 1, bad: 5 },        // % of channel area that is a dead zone (reverse flow or still air away from walls)
   re: 2000,                         // laminar model valid below this
 };
 const INPUTS = [
-  ['w_mm', 'Kanavan leveys w [mm]', 0.4, 2.0, 0.1, 1.0],
-  ['r_in_mm', 'Mutkan sisäsäde Rin [mm]', 0.2, 2.0, 0.1, 0.6],
-  ['v_in', 'Tulonopeus vin [m/s]', 0.5, 6.0, 0.5, 2.5],
+  ['w_mm', 'Channel width w [mm]', 0.4, 2.0, 0.1, 1.0],
+  ['r_in_mm', 'Bend inner radius Rin [mm]', 0.2, 2.0, 0.1, 0.6],
+  ['v_in', 'Inlet velocity vin [m/s]', 0.5, 8.0, 0.5, 2.5],
 ];
-const state = {};
-const fi = (v, d = 2) => v.toLocaleString('fi-FI', { minimumFractionDigits: Math.min(1, d), maximumFractionDigits: d });
+const state = {}, setters = {};
+const fi = (v, d = 2) => v.toLocaleString('en-US', { minimumFractionDigits: Math.min(1, d), maximumFractionDigits: d });
 
 for (const [k, label, min, max, step, def] of INPUTS) {
   state[k] = def;
   const el = document.createElement('div');
   el.className = 'field';
   el.innerHTML = `<label for="i-${k}">${label}</label><div class="num"><input id="i-${k}" inputmode="decimal" value="${fi(def)}">` +
-    `<button aria-label="vähennä">−</button><button aria-label="lisää">+</button></div>`;
+    `<button aria-label="decrease">−</button><button aria-label="increase">+</button></div>`;
   document.getElementById('fields').appendChild(el);
   const input = el.querySelector('input');
   const set = (v) => { state[k] = Math.round(Math.min(max, Math.max(min, v)) * 100) / 100; input.value = fi(state[k]); updateRib(); };
+  setters[k] = set;
   const [minus, plus] = el.querySelectorAll('button');
   minus.onclick = () => set(state[k] - step);
   plus.onclick = () => set(state[k] + step);
   input.onchange = () => { const v = parseFloat(input.value.replace(',', '.')); set(isNaN(v) ? state[k] : v); };
 }
-function updateRib() { document.getElementById('rib').textContent = `Lukittu ripaleveys: w_rib = 2 · Rin = ${fi(2 * state.r_in_mm)} mm`; }
+function updateRib() { document.getElementById('rib').textContent = `Locked rib width: w_rib = 2 · Rin = ${fi(2 * state.r_in_mm)} mm`; }
 updateRib();
 
 // ---------- results ----------
 const level = (v, lim) => v > lim.bad ? 'bad' : v >= lim.warn ? 'warn' : 'ok';
-const LABEL = { ok: 'Rajan sisällä', warn: 'Lähellä rajaa', bad: 'Yli rajan' };
+const LABEL = { ok: 'Within limit', warn: 'Near limit', bad: 'Over limit' };
 function card(title, value, unit, lvl, limitText) {
-  const chip = lvl === 'info' ? '<span class="chip info">Tieto</span>' : `<span class="chip ${lvl}">${LABEL[lvl]}</span>`;
+  const chip = lvl === 'info' ? '<span class="chip info">Info</span>' : `<span class="chip ${lvl}">${LABEL[lvl]}</span>`;
   return `<div class="card ${lvl === 'info' ? '' : lvl}"><div class="t">${title}</div><div class="v">${value} <small>${unit}</small></div>` +
     `<div class="l">${chip}${limitText}</div></div>`;
 }
 function showResults(res) {
-  const g = res.grid, d = res.design;
-  const dp = g.dp, slow = g.slow_pct;
+  const g = res.grid, d = res.design, dead = g.dead_pct, zone = (g.zones || [])[0];
   const re = RHO * d.v_in * (2 * d.w_mm * 1e-3) / MU; // 2D channel: hydraulic diameter = 2w
-  const lDp = dp == null ? 'info' : level(dp, LIMITS.dp), lSlow = level(slow, LIMITS.slow);
+  const lDead = level(dead, LIMITS.dead);
   document.getElementById('cards').innerHTML =
-    card('Painehäviö U-mutkassa', dp == null ? '–' : fi(dp, 1), 'Pa', lDp, `raja alle ${LIMITS.dp.warn.toLocaleString('fi-FI')} Pa`) +
-    card('Hidas alue, vesikertymäriski', fi(slow, 1), '%', lSlow, `osuus jossa nopeus < 1 m/s · raja alle ${LIMITS.slow.warn} %`) +
-    card('Suurin nopeus', fi(g.u_max), 'm/s', 'info', 'ei rajaa');
+    card('Dead zone (water pocket)', fi(dead, 1), '%', lDead, `pass below ${LIMITS.dead.warn} %, fail above ${LIMITS.dead.bad} %`) +
+    card('Pressure drop in the U-bend', g.dp == null ? '–' : fi(g.dp, 1), 'Pa', 'info', '2D model excludes channel depth') +
+    card('Max velocity', fi(g.u_max), 'm/s', 'info', 'no limit');
 
   const problems = [];
-  if (lDp === 'bad') problems.push(['bad', 'painehäviö yli rajan']); else if (lDp === 'warn') problems.push(['warn', 'painehäviö lähellä rajaa']);
-  if (lSlow === 'bad') problems.push(['bad', 'liian suuri hidas alue']); else if (lSlow === 'warn') problems.push(['warn', 'hidas alue lähellä rajaa']);
-  if (re >= LIMITS.re) problems.push(['bad', 'virtaus ei ole laminaarinen']);
+  if (lDead === 'bad') problems.push(['bad', 'water pocket ' + zone.where]);
+  else if (lDead === 'warn') problems.push(['warn', 'small water pocket ' + zone.where]);
+  if (re >= LIMITS.re) problems.push(['bad', 'flow is not laminar']);
   const worst = problems.some((p) => p[0] === 'bad') ? 'bad' : problems.length ? 'warn' : 'ok';
   const v = document.getElementById('verdict');
   v.className = 'verdict ' + worst;
-  v.textContent = worst === 'ok' ? '✓ Kaikki arvot rajojen sisällä.' : (worst === 'bad' ? '✗ ' : '⚠ ') + (() => { const t = problems.map((p) => p[1]).join(', '); return t[0].toUpperCase() + t.slice(1); })() + '.';
+  v.textContent = worst === 'ok' ? '✓ No water pockets, air flows through the whole channel.' :
+    (worst === 'bad' ? '✗ ' : '⚠ ') + problems.map((p) => p[1]).join(', ').replace(/^./, (c) => c.toUpperCase()) + '.';
   document.getElementById('note').textContent =
-    `Laskettu arvoilla w = ${fi(d.w_mm)} mm, Rin = ${fi(d.r_in_mm)} mm, vin = ${fi(d.v_in)} m/s. ` +
-    `Reynoldsin luku ${Math.round(re)} ${re < LIMITS.re ? '< 2000, laminaarimalli pätee.' : '≥ 2000, laminaarimalli ei päde.'}`;
-  drawField(res);
+    `Computed with w = ${fi(d.w_mm)} mm, Rin = ${fi(d.r_in_mm)} mm, vin = ${fi(d.v_in)} m/s. Reynolds number ${Math.round(re)}` +
+    (re < LIMITS.re ? ' < 2000, laminar model is valid.' : ' ≥ 2000, laminar model is not valid.') +
+    (g.iterations ? ` Navier–Stokes converged in ${g.iterations} iterations.` : '');
+  const b = document.getElementById('badge');
+  b.className = 'badge ' + worst;
+  b.textContent = worst === 'ok' ? '✓ PASSED' : (worst === 'bad' ? '✗ FAILED · ' : '⚠ BORDERLINE · ') + problems[0][1];
+  drawField(res, worst);
 }
-function drawField(res) {
-  const g = res.grid;
-  Plotly.react('plot', [{
-    type: 'heatmap', x: g.x, y: g.y, z: g.u, colorscale: 'Viridis', zmin: 0, zsmooth: 'best', hoverongaps: false,
-    colorbar: { title: { text: 'Nopeus [m/s]', side: 'top' }, thickness: 30, len: 0.9, outlinewidth: 0 },
-    hovertemplate: 'x %{x:.2f} mm<br>y %{y:.2f} mm<br>%{z:.2f} m/s<extra></extra>',
-  }], {
-    paper_bgcolor: '#0e1117', plot_bgcolor: '#0e1117', font: { color: '#fafafa', size: 13 },
+function drawField(res, worst) {
+  const g = res.grid, zone = (g.zones || [])[0];
+  const traces = [
+    { type: 'heatmap', x: g.x, y: g.y, z: g.u, colorscale: 'Viridis', zmin: 0, zsmooth: 'best', hoverongaps: false,
+      colorbar: { title: { text: 'Velocity [m/s]', side: 'top' }, thickness: 30, len: 0.9, outlinewidth: 0 },
+      hovertemplate: 'x %{x:.2f} mm<br>y %{y:.2f} mm<br>%{z:.2f} m/s<extra></extra>' },
+    // the dead zone itself, painted red on top of the velocity field
+    { type: 'heatmap', x: g.x, y: g.y, z: g.dead, colorscale: [[0, '#ff2d2d'], [1, '#ff2d2d']], showscale: false, opacity: 0.9,
+      hoverongaps: false, hovertemplate: 'Water pocket<br>x %{x:.2f} mm, y %{y:.2f} mm<extra></extra>' },
+  ];
+  const annotations = [];
+  if (zone && worst !== 'ok') {
+    annotations.push({ x: zone.x, y: zone.y, ax: 120, ay: -60, text: `⚠ Water pocket: ${zone.backflow ? 'flow reverses' : 'air is stagnant'}<br>${zone.where}`,
+      showarrow: true, arrowhead: 2, arrowsize: 1.4, arrowwidth: 3, arrowcolor: '#ff2d2d', font: { color: '#ffffff', size: 15 },
+      bgcolor: '#3e2428', bordercolor: '#ff2d2d', borderwidth: 2, borderpad: 6, align: 'left' });
+  }
+  Plotly.react('plot', traces, {
+    paper_bgcolor: '#0e1117', plot_bgcolor: '#0e1117', font: { color: '#fafafa', size: 13 }, showlegend: false, annotations,
     margin: { l: 70, r: 20, t: 10, b: 20 }, xaxis: { visible: false, scaleanchor: 'y' }, yaxis: { title: 'Y [mm]', gridcolor: '#31333f', zeroline: false },
   }, { displaylogo: false, responsive: true, displayModeBar: false });
-  document.getElementById('caption').innerHTML = 'Nopeuskenttä: Allsolve 2D -laminaarivirtaus' +
-    (res.url ? ` · <a href="${res.url}" target="_blank" rel="noopener">Avaa Allsolvessa</a>` : '');
+  document.getElementById('caption').innerHTML = '<b style="color:#ff6b6b">Red</b> = water pocket: the flow reverses or the air is stagnant away from the walls, ' +
+    'so water collects here. Velocity field: Allsolve 2D, Navier–Stokes' +
+    (res.url ? ` · <a href="${res.url}" target="_blank" rel="noopener">Open in Allsolve</a>` : '');
 }
 
 // ---------- running animation + notification ----------
-const STEPS = [['build', 'Malli'], ['mesh', 'Verkotus'], ['solve', 'Laskenta'], ['fetch', 'Tulos']];
+const STEPS = [['build', 'Model'], ['mesh', 'Meshing'], ['solve', 'Solving'], ['fetch', 'Result']];
 const msg = document.getElementById('msg'), btn = document.getElementById('run'), running = document.getElementById('running');
 let t0 = 0, tick = null;
 function setStage(stage) {
@@ -188,9 +220,9 @@ function setStage(stage) {
 function startRun() {
   running.classList.add('on'); msg.className = 'msg'; msg.textContent = ''; setStage('build');
   t0 = Date.now(); clearInterval(tick);
-  const upd = () => { const s = Math.round((Date.now() - t0) / 1000); document.getElementById('timer').textContent = `Aikaa kulunut ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} · tyypillisesti noin minuutti`; };
+  const upd = () => { const s = Math.round((Date.now() - t0) / 1000); document.getElementById('timer').textContent = `Elapsed ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} · usually about a minute`; };
   upd(); tick = setInterval(upd, 1000);
-  document.title = '⏳ Allsolve laskee… – CellShield';
+  document.title = '⏳ Allsolve computing… – CellShield';
 }
 function stopRun() { running.classList.remove('on'); clearInterval(tick); btn.disabled = false; }
 function beep() {
@@ -199,14 +231,14 @@ function beep() {
 function finished(res) {
   const secs = Math.round((Date.now() - t0) / 1000);
   stopRun(); showResults(res);
-  msg.className = 'msg done'; msg.textContent = `✓ Allsolve-simulaatio valmis (${secs} s). Tulokset päivitetty.`;
-  document.title = '✓ Valmis – CellShield';
+  msg.className = 'msg done'; msg.textContent = `✓ Allsolve simulation finished (${secs} s). Results updated.`;
+  document.title = '✓ Done – CellShield';
   beep();
   if ('Notification' in window && Notification.permission === 'granted') new Notification('Allsolve-simulaatio valmis', { body: document.getElementById('verdict').textContent });
 }
 function failed(text) {
-  stopRun(); msg.className = 'msg err'; msg.textContent = 'Allsolve-simulaatio epäonnistui. Virhe: ' + text;
-  document.title = '✗ Virhe – CellShield';
+  stopRun(); msg.className = 'msg err'; msg.textContent = 'Allsolve simulation failed. Error: ' + text;
+  document.title = '✗ Error – CellShield';
 }
 
 async function poll(pid, design) {
@@ -229,8 +261,14 @@ btn.onclick = async () => {
 };
 
 fetch('default.json').then((r) => r.json()).then(showResults).catch(() => {});
+document.querySelectorAll('.ex').forEach((b) => b.onclick = async () => {
+  const res = await (await fetch(`examples/${b.dataset.ex}.json`)).json();
+  for (const k of ['w_mm', 'r_in_mm', 'v_in']) setters[k](res.design[k]);
+  msg.className = 'msg'; msg.textContent = '';
+  showResults(res);
+});
 fetch('/api/verify').then((r) => r.json()).then((j) => { if (!j.available) { btn.disabled = true; failed(j.message); } })
-  .catch(() => { btn.disabled = true; msg.className = 'msg err'; msg.textContent = 'Allsolve-palvelin ei vastaa.'; });
+  .catch(() => { btn.disabled = true; msg.className = 'msg err'; msg.textContent = 'Allsolve server is not responding.'; });
 </script>
 </body>
 </html>
