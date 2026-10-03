@@ -1,0 +1,4 @@
+allsolve>=0.5.2
+h5py
+numpy
+python-dotenv

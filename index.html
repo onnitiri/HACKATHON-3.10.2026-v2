@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CellShield</title>
+<script src="vendor/plotly.min.js"></script>
+<style>
+:root {
+  --bg: #0e1117; --side: #262730; --field: #1a1c24; --card: #161922; --line: #2b2f3b;
+  --ink: #fafafa; --ink2: #a3a8b8; --red: #ff4b4b; --info-bg: #1c2a43; --info: #7ab7ff;
+  --ok: #3dd68c; --ok-bg: #12301f; --warn: #ffd166; --warn-bg: #3a3014; --bad: #ff6b6b; --bad-bg: #3e2428;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); font: 16px/1.5 "Source Sans Pro", system-ui, -apple-system, "Segoe UI", sans-serif; }
+.app { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
+aside { background: var(--side); padding: 40px 22px; }
+aside h2 { margin: 0 0 22px; font-size: 22px; }
+.field { margin-bottom: 18px; }
+.field label { display: block; font-size: 14px; margin-bottom: 6px; }
+.num { display: flex; align-items: center; background: var(--field); border-radius: 8px; }
+.num input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--ink); font: inherit; padding: 10px 14px; outline: none; }
+.num button { background: transparent; border: 0; color: var(--ink); font-size: 20px; width: 40px; height: 44px; cursor: pointer; }
+.num button:hover { color: var(--red); }
+.info { background: var(--info-bg); color: var(--info); border-radius: 8px; padding: 14px 16px; margin: 4px 0 18px; }
+.run { background: var(--red); color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; cursor: pointer; }
+.run:disabled { opacity: .5; cursor: default; }
+main { padding: 32px 40px 24px; min-width: 0; }
+
+/* messages */
+.msg { border-radius: 8px; padding: 14px 18px; margin-bottom: 16px; }
+.msg.err { background: var(--bad-bg); color: var(--bad); }
+.msg.done { background: var(--ok-bg); color: var(--ok); font-weight: 600; }
+.msg:empty { display: none; }
+
+/* running animation */
+.running { display: none; align-items: center; gap: 28px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 24px; margin-bottom: 18px; }
+.running.on { display: flex; }
+.running svg { width: 64px; height: 84px; flex: none; }
+.u-bg { fill: none; stroke: #2b2f3b; stroke-width: 16; stroke-linecap: round; }
+.u-flow { fill: none; stroke: url(#flowgrad); stroke-width: 6; stroke-linecap: round; stroke-dasharray: 10 14; animation: flow 0.9s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -24; } }
+.run-title { font-size: 18px; font-weight: 600; }
+.steps { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.step { font-size: 13px; padding: 3px 10px; border-radius: 99px; background: var(--field); color: var(--ink2); }
+.step.active { background: var(--info-bg); color: var(--info); animation: pulse 1.2s ease-in-out infinite; }
+.step.done { background: var(--ok-bg); color: var(--ok); }
+@keyframes pulse { 50% { opacity: .55; } }
+.timer { color: var(--ink2); font-size: 14px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+
+/* results */
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--line); border-radius: 10px; padding: 14px 18px; }
+.card.ok { border-left-color: var(--ok); } .card.warn { border-left-color: var(--warn); } .card.bad { border-left-color: var(--bad); }
+.card .t { color: var(--ink2); font-size: 14px; }
+.card .v { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.card .v small { font-size: 16px; color: var(--ink2); font-weight: 500; }
+.card .l { font-size: 13px; color: var(--ink2); margin-top: 4px; }
+.chip { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 99px; margin-right: 6px; }
+.chip.ok { background: var(--ok-bg); color: var(--ok); } .chip.warn { background: var(--warn-bg); color: var(--warn); } .chip.bad { background: var(--bad-bg); color: var(--bad); }
+.chip.info { background: var(--field); color: var(--ink2); }
+.verdict { margin: 14px 0 6px; font-size: 17px; }
+.verdict.ok { color: var(--ok); } .verdict.warn { color: var(--warn); } .verdict.bad { color: var(--bad); }
+.note { color: var(--ink2); font-size: 14px; margin: 0 0 8px; }
+#plot { width: 100%; height: 62vh; min-height: 420px; }
+.caption { color: var(--ink2); font-size: 14px; }
+.caption a { color: var(--info); }
+@media (max-width: 900px) { .app, .cards { grid-template-columns: minmax(0, 1fr); } main { padding: 20px 16px; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h2>U-mutkan parametrit</h2>
+    <div id="fields"></div>
+    <div class="info" id="rib"></div>
+    <button class="run" id="run">Aja Allsolve-simulaatio</button>
+  </aside>
+  <main>
+    <div class="msg" id="msg"></div>
+
+    <div class="running" id="running">
+      <svg viewBox="0 0 64 84" aria-hidden="true">
+        <defs><linearGradient id="flowgrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fde725"/><stop offset="1" stop-color="#21918c"/></linearGradient></defs>
+        <path class="u-bg" d="M14 6 V54 A18 18 0 0 0 50 54 V6"/>
+        <path class="u-flow" d="M14 6 V54 A18 18 0 0 0 50 54 V6"/>
+      </svg>
+      <div>
+        <div class="run-title">Allsolve laskee…</div>
+        <div class="steps" id="steps"></div>
+        <div class="timer" id="timer"></div>
+      </div>
+    </div>
+
+    <div class="cards" id="cards"></div>
+    <div class="verdict" id="verdict"></div>
+    <p class="note" id="note"></p>
+    <div id="plot"></div>
+    <p class="caption" id="caption"></p>
+  </main>
+</div>
+<script>
+const RHO = 1.04, MU = 2.03e-5;
+const LIMITS = {
+  dp: { warn: 5000, bad: 10000 },   // Pa per U-bend
+  slow: { warn: 15, bad: 30 },      // % of channel area with |u| < 1 m/s
+  re: 2000,                         // laminar model valid below this
+};
+const INPUTS = [
+  ['w_mm', 'Kanavan leveys w [mm]', 0.4, 2.0, 0.1, 1.0],
+  ['r_in_mm', 'Mutkan sisäsäde Rin [mm]', 0.2, 2.0, 0.1, 0.6],
+  ['v_in', 'Tulonopeus vin [m/s]', 0.5, 6.0, 0.5, 2.5],
+];
+const state = {};
+const fi = (v, d = 2) => v.toLocaleString('fi-FI', { minimumFractionDigits: Math.min(1, d), maximumFractionDigits: d });
+
+for (const [k, label, min, max, step, def] of INPUTS) {
+  state[k] = def;
+  const el = document.createElement('div');
+  el.className = 'field';
+  el.innerHTML = `<label for="i-${k}">${label}</label><div class="num"><input id="i-${k}" inputmode="decimal" value="${fi(def)}">` +
+    `<button aria-label="vähennä">−</button><button aria-label="lisää">+</button></div>`;
+  document.getElementById('fields').appendChild(el);
+  const input = el.querySelector('input');
+  const set = (v) => { state[k] = Math.round(Math.min(max, Math.max(min, v)) * 100) / 100; input.value = fi(state[k]); updateRib(); };
+  const [minus, plus] = el.querySelectorAll('button');
+  minus.onclick = () => set(state[k] - step);
+  plus.onclick = () => set(state[k] + step);
+  input.onchange = () => { const v = parseFloat(input.value.replace(',', '.')); set(isNaN(v) ? state[k] : v); };
+}
+function updateRib() { document.getElementById('rib').textContent = `Lukittu ripaleveys: w_rib = 2 · Rin = ${fi(2 * state.r_in_mm)} mm`; }
+updateRib();
+
+// ---------- results ----------
+const level = (v, lim) => v > lim.bad ? 'bad' : v >= lim.warn ? 'warn' : 'ok';
+const LABEL = { ok: 'Rajan sisällä', warn: 'Lähellä rajaa', bad: 'Yli rajan' };
+function card(title, value, unit, lvl, limitText) {
+  const chip = lvl === 'info' ? '<span class="chip info">Tieto</span>' : `<span class="chip ${lvl}">${LABEL[lvl]}</span>`;
+  return `<div class="card ${lvl === 'info' ? '' : lvl}"><div class="t">${title}</div><div class="v">${value} <small>${unit}</small></div>` +
+    `<div class="l">${chip}${limitText}</div></div>`;
+}
+function showResults(res) {
+  const g = res.grid, d = res.design;
+  const dp = g.dp, slow = g.slow_pct;
+  const re = RHO * d.v_in * (2 * d.w_mm * 1e-3) / MU; // 2D channel: hydraulic diameter = 2w
+  const lDp = dp == null ? 'info' : level(dp, LIMITS.dp), lSlow = level(slow, LIMITS.slow);
+  document.getElementById('cards').innerHTML =
+    card('Painehäviö U-mutkassa', dp == null ? '–' : fi(dp, 1), 'Pa', lDp, `raja alle ${LIMITS.dp.warn.toLocaleString('fi-FI')} Pa`) +
+    card('Hidas alue, vesikertymäriski', fi(slow, 1), '%', lSlow, `osuus jossa nopeus < 1 m/s · raja alle ${LIMITS.slow.warn} %`) +
+    card('Suurin nopeus', fi(g.u_max), 'm/s', 'info', 'ei rajaa');
+
+  const problems = [];
+  if (lDp === 'bad') problems.push(['bad', 'painehäviö yli rajan']); else if (lDp === 'warn') problems.push(['warn', 'painehäviö lähellä rajaa']);
+  if (lSlow === 'bad') problems.push(['bad', 'liian suuri hidas alue']); else if (lSlow === 'warn') problems.push(['warn', 'hidas alue lähellä rajaa']);
+  if (re >= LIMITS.re) problems.push(['bad', 'virtaus ei ole laminaarinen']);
+  const worst = problems.some((p) => p[0] === 'bad') ? 'bad' : problems.length ? 'warn' : 'ok';
+  const v = document.getElementById('verdict');
+  v.className = 'verdict ' + worst;
+  v.textContent = worst === 'ok' ? '✓ Kaikki arvot rajojen sisällä.' : (worst === 'bad' ? '✗ ' : '⚠ ') + (() => { const t = problems.map((p) => p[1]).join(', '); return t[0].toUpperCase() + t.slice(1); })() + '.';
+  document.getElementById('note').textContent =
+    `Laskettu arvoilla w = ${fi(d.w_mm)} mm, Rin = ${fi(d.r_in_mm)} mm, vin = ${fi(d.v_in)} m/s. ` +
+    `Reynoldsin luku ${Math.round(re)} ${re < LIMITS.re ? '< 2000, laminaarimalli pätee.' : '≥ 2000, laminaarimalli ei päde.'}`;
+  drawField(res);
+}
+function drawField(res) {
+  const g = res.grid;
+  Plotly.react('plot', [{
+    type: 'heatmap', x: g.x, y: g.y, z: g.u, colorscale: 'Viridis', zmin: 0, zsmooth: 'best', hoverongaps: false,
+    colorbar: { title: { text: 'Nopeus [m/s]', side: 'top' }, thickness: 30, len: 0.9, outlinewidth: 0 },
+    hovertemplate: 'x %{x:.2f} mm<br>y %{y:.2f} mm<br>%{z:.2f} m/s<extra></extra>',
+  }], {
+    paper_bgcolor: '#0e1117', plot_bgcolor: '#0e1117', font: { color: '#fafafa', size: 13 },
+    margin: { l: 70, r: 20, t: 10, b: 20 }, xaxis: { visible: false, scaleanchor: 'y' }, yaxis: { title: 'Y [mm]', gridcolor: '#31333f', zeroline: false },
+  }, { displaylogo: false, responsive: true, displayModeBar: false });
+  document.getElementById('caption').innerHTML = 'Nopeuskenttä: Allsolve 2D -laminaarivirtaus' +
+    (res.url ? ` · <a href="${res.url}" target="_blank" rel="noopener">Avaa Allsolvessa</a>` : '');
+}
+
+// ---------- running animation + notification ----------
+const STEPS = [['build', 'Malli'], ['mesh', 'Verkotus'], ['solve', 'Laskenta'], ['fetch', 'Tulos']];
+const msg = document.getElementById('msg'), btn = document.getElementById('run'), running = document.getElementById('running');
+let t0 = 0, tick = null;
+function setStage(stage) {
+  const idx = STEPS.findIndex((s) => s[0] === stage);
+  document.getElementById('steps').innerHTML = STEPS.map(([, l], i) =>
+    `<span class="step ${i < idx ? 'done' : i === idx ? 'active' : ''}">${i < idx ? '✓ ' : ''}${l}</span>`).join('');
+}
+function startRun() {
+  running.classList.add('on'); msg.className = 'msg'; msg.textContent = ''; setStage('build');
+  t0 = Date.now(); clearInterval(tick);
+  const upd = () => { const s = Math.round((Date.now() - t0) / 1000); document.getElementById('timer').textContent = `Aikaa kulunut ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} · tyypillisesti noin minuutti`; };
+  upd(); tick = setInterval(upd, 1000);
+  document.title = '⏳ Allsolve laskee… – CellShield';
+}
+function stopRun() { running.classList.remove('on'); clearInterval(tick); btn.disabled = false; }
+function beep() {
+  try { const a = new AudioContext(), o = a.createOscillator(), gn = a.createGain(); o.frequency.value = 880; gn.gain.value = 0.08; o.connect(gn).connect(a.destination); o.start(); o.stop(a.currentTime + 0.18); } catch (e) {}
+}
+function finished(res) {
+  const secs = Math.round((Date.now() - t0) / 1000);
+  stopRun(); showResults(res);
+  msg.className = 'msg done'; msg.textContent = `✓ Allsolve-simulaatio valmis (${secs} s). Tulokset päivitetty.`;
+  document.title = '✓ Valmis – CellShield';
+  beep();
+  if ('Notification' in window && Notification.permission === 'granted') new Notification('Allsolve-simulaatio valmis', { body: document.getElementById('verdict').textContent });
+}
+function failed(text) {
+  stopRun(); msg.className = 'msg err'; msg.textContent = 'Allsolve-simulaatio epäonnistui. Virhe: ' + text;
+  document.title = '✗ Virhe – CellShield';
+}
+
+async function poll(pid, design) {
+  try {
+    const j = await (await fetch('/api/verify?' + new URLSearchParams({ project_id: pid, ...design }))).json();
+    if (j.status === 'done') { setStage('fetch'); finished(j); return; }
+    if (j.status !== 'running') { failed(j.message); return; }
+    setStage(j.stage || 'solve');
+  } catch (e) { /* network hiccup: keep polling */ }
+  setTimeout(() => poll(pid, design), 4000);
+}
+btn.onclick = async () => {
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  btn.disabled = true; startRun();
+  try {
+    const j = await (await fetch('/api/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state) })).json();
+    if (j.status === 'submitted') { setStage(j.stage || 'mesh'); setTimeout(() => poll(j.project_id, j.design), 4000); }
+    else failed(j.message);
+  } catch (e) { failed(String(e)); }
+};
+
+fetch('default.json').then((r) => r.json()).then(showResults).catch(() => {});
+fetch('/api/verify').then((r) => r.json()).then((j) => { if (!j.available) { btn.disabled = true; failed(j.message); } })
+  .catch(() => { btn.disabled = true; msg.className = 'msg err'; msg.textContent = 'Allsolve-palvelin ei vastaa.'; });
+</script>
+</body>
+</html>
